@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="2AMD15-2022-MS2-Stream">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/src/main/scala/2AMD15-2022-MS2-Stream.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
