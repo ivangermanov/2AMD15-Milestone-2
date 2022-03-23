@@ -31,49 +31,44 @@ def calculateSimilarity(table1: Array[Array[Long]], table2: Array[Array[Long]]) 
   similarity
 }
 
-object HelloWorld:
-  @main def run(): Unit = {
+object Main:
+  def main(args: Array[String]): Unit = {
     // Make private variable table accessible
     countMinSketchClassTable.setAccessible(true)
-    // Capture current time in seconds
-    val startTime = System.currentTimeMillis() / 1000
+    // Initialize current time in seconds
+    var startTime: Long = 0
     // Number of processed updates since the start of the program (need to print this in the output)
     var numProcessedUpdates: Integer = 0;
 
     val spark = SparkSession.builder.master("local[*]").getOrCreate()
     val ssc = new StreamingContext(spark.sparkContext, Seconds(2))
+    // disable spark errors
+    ssc.sparkContext.setLogLevel("ERROR")
     val linesSocket = ssc.socketTextStream("localhost", 9000)
     val linesWindow = linesSocket.window(w)
+    val linesWindow2 = linesSocket.window(Seconds(2))
     val lines = linesWindow.map(x => (x.split(",")(0).toInt, x.split(",")(1).toInt))
-    lines.print()
-
-    val sketches = List.fill(100)(CountMinSketch.create(epsilon, delta, 100))
-    val tables = List.range(0,100).map(i => countMinSketchClassTable.get(sketches(i)).asInstanceOf[Array[Array[Long]]])
 
     // create csv file to append
     val writer = new PrintWriter(new File("output.csv"))
     writer.write("num_processed_updates, num_pairs, time\n")
 
+    linesWindow2.foreachRDD(rdd => {
+      val collectedRdd = rdd.collect()
+      numProcessedUpdates += rdd.count().toInt
+    })
+
     lines.foreachRDD(rdd => {
+      if (startTime == 0) {
+        startTime = System.currentTimeMillis() / 1000
+      }
+      val sketches = List.fill(100)(CountMinSketch.create(epsilon, delta, 100))
+      val tables = List.range(0,100).map(i => countMinSketchClassTable.get(sketches(i)).asInstanceOf[Array[Array[Long]]])
       val collectedRdd = rdd.collect()
       collectedRdd.foreach(x => {
         val (server, ip) = x
         sketches(server).add(ip)
-
-        numProcessedUpdates += 1
-        //        println("Sketch 41:")
-//        collectedRdd.foreach(x => println(x._2 + " " + sketch41.estimateCount(x._2)))
-//        println("Sketch 42:")
-//        collectedRdd.foreach(x => println(x._2 + " " + sketch42.estimateCount(x._2)))
-//        println("Similarity: " + calculateSimilarity(table1, table2))
-
-//        for(i <- 0 until 99){
-//          for(j <- i+1 until 99){
-//              println("Similarity: " + calculateSimilarity(tables(i), tables(j)))
-//          }
-//        }
       })
-
       var numPairs = 0
       // Get difference between current time and start time
       val currentTime = System.currentTimeMillis() / 1000
@@ -84,8 +79,8 @@ object HelloWorld:
           val similarity = calculateSimilarity(tables(i), tables(j))
           if (similarity > threshold){
             numPairs += 1
-//            println(s"Number processed updates: ${numProcessedUpdates}, " +
-//                    s"Similarity between ${i} and ${j}: ${similarity}")
+            println(s"Number processed updates: ${numProcessedUpdates}, " +
+                    s"Similarity between ${i} and ${j}: ${similarity}")
           }
         }
       }
@@ -94,14 +89,13 @@ object HelloWorld:
               s"Time difference: ${timeDiff}")
       // write line to csv
       writer.write(s"${numProcessedUpdates}, ${numPairs}, ${timeDiff}\n")
-      if (timeDiff > 120) {
+      if (timeDiff >= 120) {
         writer.close()
         ssc.stop()
       }
       println("++++++++++++++++++++++++++++++++++++++++")
     })
 
-    writer.close()
     ssc.start()
     ssc.awaitTermination()
     ssc.stop()
